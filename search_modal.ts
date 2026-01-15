@@ -91,20 +91,14 @@ export class NotionSearchModal extends SuggestModal<NotionPage> {
         });
     }
 
-    // 查找已存在的具有相同 notion_id 的文件
-    private async findFileByNotionId(notionId: string): Promise<any | null> {
+    // 查找已存在的具有相同 notion_id 的文件（使用 MetadataCache 优化性能）
+    private findFileByNotionId(notionId: string): import('obsidian').TFile | null {
+        // 遍历所有 Markdown 文件并检查缓存的 frontmatter
         const files = this.app.vault.getMarkdownFiles();
-
         for (const file of files) {
-            try {
-                const content = await this.app.vault.read(file);
-                // 检查 frontmatter 中的 notion_id
-                const match = content.match(/^---[\s\S]*?notion_id:\s*(.+?)[\s\n][\s\S]*?---/);
-                if (match && match[1].trim() === notionId) {
-                    return file;
-                }
-            } catch (e) {
-                // 忽略读取错误
+            const cache = this.app.metadataCache.getFileCache(file);
+            if (cache?.frontmatter && cache.frontmatter['notion_id'] === notionId) {
+                return file;
             }
         }
         return null;
@@ -141,16 +135,18 @@ export class NotionSearchModal extends SuggestModal<NotionPage> {
                 counter++;
             }
             // 添加 YAML frontmatter
+            const now = new Date().toISOString();
             const frontmatter = `---
 notion_url: ${page.url}
 notion_id: ${page.id}
+updated: ${now}
 ---
 
 `;
             const fileContent = frontmatter + markdown;
 
             // 查找是否已存在相同 notion_id 的文件
-            const existingFile = await this.findFileByNotionId(page.id);
+            const existingFile = this.findFileByNotionId(page.id);
 
             if (existingFile) {
                 // 更新已存在的文件
