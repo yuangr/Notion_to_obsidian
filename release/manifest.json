@@ -1,0 +1,10 @@
+{
+	"id": "obsidian-notion-importer",
+	"name": "Notion Importer",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "Search and import Notion pages into Obsidian.",
+	"author": "Antigravity",
+	"authorUrl": "",
+	"isDesktopOnly": false
+}
