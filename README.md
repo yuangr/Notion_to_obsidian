@@ -22,7 +22,7 @@
 ## 配置
 
 1. 访问 [Notion Integrations](https://www.notion.so/my-integrations) 创建一个 Integration
-2. 复制 Integration Token（以 `secret_` 开头）
+2. 复制 Integration Token（以 `ntn_` 开头）
 3. 在 Notion 中将 Integration 添加到你想搜索的页面（页面右上角 ⋮ → Connections）
 4. 在 Obsidian 插件设置中粘贴 Token
 
