@@ -13,7 +13,7 @@
         "obsidian-plugin",
         "notion"
     ],
-    "author": "Antigravity",
+    "author": "yuangr",
     "license": "MIT",
     "devDependencies": {
         "@types/node": "^16.11.6",
