@@ -1,10 +1,16 @@
+import { App, requestUrl } from 'obsidian';
 import { NotionService, NotionBlock } from './notion';
+import { NotionImporterSettings } from './main';
 
 export class NotionConverter {
     private notionService: NotionService;
+    private app: App;
+    private settings: NotionImporterSettings;
 
-    constructor(notionService: NotionService) {
+    constructor(notionService: NotionService, app: App, settings: NotionImporterSettings) {
         this.notionService = notionService;
+        this.app = app;
+        this.settings = settings;
     }
 
     async pageToMarkdown(pageId: string): Promise<string> {
@@ -134,6 +140,44 @@ export class NotionConverter {
                 const imageName = content?.caption?.length > 0
                     ? this.richTextToMarkdown(content.caption)
                     : this.extractFileName(imageUrl) || '图片';
+
+                if (this.settings.downloadImages && imageUrl) {
+                    try {
+                        const response = await requestUrl({ url: imageUrl });
+                        const arrayBuffer = response.arrayBuffer;
+
+                        let ext = imageUrl.split('.').pop()?.split('?')[0] || 'png';
+                        if (ext.length > 5 || !/^[a-zA-Z0-9]+$/.test(ext)) {
+                            ext = 'png';
+                        }
+
+                        const safeName = imageName.replace(/[\\/:*?"<>|]/g, "_");
+                        let folderName = this.settings.imageFolderPath || '';
+
+                        if (folderName && !await this.app.vault.adapter.exists(folderName)) {
+                            await this.app.vault.createFolder(folderName);
+                        }
+
+                        let baseFilePath = folderName ? `${folderName}/${safeName}.${ext}` : `${safeName}.${ext}`;
+                        let filePath = baseFilePath;
+
+                        let counter = 1;
+                        while (await this.app.vault.adapter.exists(filePath)) {
+                            filePath = folderName
+                                ? `${folderName}/${safeName}_${counter}.${ext}`
+                                : `${safeName}_${counter}.${ext}`;
+                            counter++;
+                        }
+
+                        await this.app.vault.createBinary(filePath, arrayBuffer);
+
+                        return `![[${filePath.split('/').pop()}]]`;
+                    } catch (e) {
+                        console.error("Failed to download image", e);
+                        return `![${imageName}](${imageUrl})`;
+                    }
+                }
+
                 return `![${imageName}](${imageUrl})`;
 
             case 'bookmark':

@@ -4,12 +4,16 @@ import { NotionService } from './notion';
 import { NotionConverter } from './converter';
 import { NotionSearchModal } from './search_modal';
 
-interface NotionImporterSettings {
+export interface NotionImporterSettings {
     notionToken: string;
+    downloadImages: boolean;
+    imageFolderPath: string;
 }
 
 const DEFAULT_SETTINGS: NotionImporterSettings = {
-    notionToken: ''
+    notionToken: '',
+    downloadImages: true,
+    imageFolderPath: 'Notion_Images'
 }
 
 export default class NotionImporterPlugin extends Plugin {
@@ -48,7 +52,7 @@ export default class NotionImporterPlugin extends Plugin {
     initializeServices() {
         if (this.settings.notionToken) {
             this.notionService = new NotionService(this.settings.notionToken);
-            this.notionConverter = new NotionConverter(this.notionService);
+            this.notionConverter = new NotionConverter(this.notionService, this.app, this.settings);
         }
     }
 
