@@ -117,73 +117,8 @@ export class NotionSearchModal extends SuggestModal<NotionPage> {
     async importDatabase(database: NotionPage) {
         new Notice(`Fetching pages for database ${database.title}...`);
         try {
-            const pages = await this.notionService.getDatabasePages(database.id);
-            new Notice(`Found ${pages.length} pages in ${database.title}. Importing...`);
-
-            // 确保数据库主文件夹存在
-            let dbFolderName = database.title.replace(/[\\/:*?"<>|]/g, "-") || "Untitled Database";
-            const basePath = `Notion_Search/${dbFolderName}`;
-
-            // Create root Notion_Search if not exists
-            if (!await this.app.vault.adapter.exists('Notion_Search')) {
-                await this.app.vault.createFolder('Notion_Search');
-            }
-            // Create DB folder if not exists
-            if (!await this.app.vault.adapter.exists(basePath)) {
-                await this.app.vault.createFolder(basePath);
-            }
-
-            let importedCount = 0;
-            for (const childPage of pages) {
-                // Extract title for the child page
-                let childTitle = "Untitled";
-                for (const key in childPage.properties) {
-                    if (childPage.properties[key].type === 'title') {
-                        const titleItems = childPage.properties[key].title;
-                        if (titleItems && titleItems.length > 0) {
-                            childTitle = titleItems.map((t: any) => t.plain_text).join("");
-                        }
-                        break;
-                    }
-                }
-
-                let safeTitle = childTitle.replace(/[\\/:*?"<>|]/g, "-") || "Untitled";
-                const yamlProperties = this.notionConverter.propertiesToYAML(childPage.properties);
-                const markdown = await this.notionConverter.pageToMarkdown(childPage.id);
-
-                const now = new Date().toISOString();
-                const frontmatterBase = `---
-notion_url: ${childPage.url}
-notion_id: ${childPage.id}
-updated: ${now}
-`;
-                // Merge YAML
-                let finalYaml = frontmatterBase;
-                if (yamlProperties.startsWith('---\n')) {
-                    finalYaml += yamlProperties.slice(4); // append without the starting ---
-                } else {
-                    finalYaml += '---\n';
-                }
-
-                const fileContent = finalYaml + '\n' + markdown;
-
-                const existingFile = this.findFileByNotionId(childPage.id);
-                if (existingFile) {
-                    await this.app.vault.modify(existingFile, fileContent);
-                } else {
-                    let filePath = `${basePath}/${safeTitle}.md`;
-                    let counter = 1;
-                    while (await this.app.vault.adapter.exists(filePath)) {
-                        filePath = `${basePath}/${safeTitle} (${counter}).md`;
-                        counter++;
-                    }
-                    await this.app.vault.create(filePath, fileContent);
-                }
-                importedCount++;
-            }
-
-            new Notice(`Successfully imported ${importedCount} pages into /${basePath}`);
-
+            const basePath = await this.notionConverter.importDatabaseToFolder(database.id, database.title);
+            new Notice(`Successfully imported database into /${basePath}`);
         } catch (error) {
             console.error("Error importing database:", error);
             new Notice("Failed to import database. Check console.");

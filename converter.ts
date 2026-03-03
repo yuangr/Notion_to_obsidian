@@ -222,7 +222,17 @@ export class NotionConverter {
                 return `📄 [[${content?.title || 'Untitled'}]]`;
 
             case 'child_database':
-                return `📊 [[${content?.title || 'Untitled Database'}]]`;
+                const dbTitle = content?.title || 'Untitled Database';
+                // Trigger the background download of the inline database
+                // Note: We don't await this directly here to block the main page, 
+                // but for Obsidian plugins and to avoid incomplete states, awaiting is safer.
+                try {
+                    const folderPath = await this.importDatabaseToFolder(block.id, dbTitle);
+                    return `📊 [[${folderPath}/|${dbTitle}]]`;
+                } catch (e) {
+                    console.error("Failed to import inline database", e);
+                    return `📊 [[${dbTitle}]]`;
+                }
 
             case 'embed':
             case 'video':
@@ -382,5 +392,82 @@ export class NotionConverter {
         } catch {
             return '';
         }
+    }
+
+    // 查找已存在的具有相同 notion_id 的文件（使用 MetadataCache 优化性能）
+    private findFileByNotionId(notionId: string): import('obsidian').TFile | null {
+        const files = this.app.vault.getMarkdownFiles();
+        for (const file of files) {
+            const cache = this.app.metadataCache.getFileCache(file);
+            if (cache?.frontmatter && cache.frontmatter['notion_id'] === notionId) {
+                return file;
+            }
+        }
+        return null;
+    }
+
+    // 下载整个数据库为文件夹的通用方法
+    public async importDatabaseToFolder(databaseId: string, databaseTitle: string): Promise<string> {
+        const pages = await this.notionService.getDatabasePages(databaseId);
+
+        // 确保数据库主文件夹存在
+        let dbFolderName = databaseTitle.replace(/[\\/:*?"<>|]/g, "-") || "Untitled Database";
+        const basePath = `Notion_Search/${dbFolderName}`;
+
+        if (!await this.app.vault.adapter.exists('Notion_Search')) {
+            await this.app.vault.createFolder('Notion_Search');
+        }
+        if (!await this.app.vault.adapter.exists(basePath)) {
+            await this.app.vault.createFolder(basePath);
+        }
+
+        for (const childPage of pages) {
+            // Extract title for the child page
+            let childTitle = "Untitled";
+            for (const key in childPage.properties) {
+                if (childPage.properties[key].type === 'title') {
+                    const titleItems = childPage.properties[key].title;
+                    if (titleItems && titleItems.length > 0) {
+                        childTitle = titleItems.map((t: any) => t.plain_text).join("");
+                    }
+                    break;
+                }
+            }
+
+            let safeTitle = childTitle.replace(/[\\/:*?"<>|]/g, "-") || "Untitled";
+            const yamlProperties = this.propertiesToYAML(childPage.properties);
+            const markdown = await this.pageToMarkdown(childPage.id);
+
+            const now = new Date().toISOString();
+            const frontmatterBase = `---
+notion_url: ${childPage.url}
+notion_id: ${childPage.id}
+updated: ${now}
+`;
+            // Merge YAML
+            let finalYaml = frontmatterBase;
+            if (yamlProperties.startsWith('---\n')) {
+                finalYaml += yamlProperties.slice(4);
+            } else {
+                finalYaml += '---\n';
+            }
+
+            const fileContent = finalYaml + '\n' + markdown;
+
+            const existingFile = this.findFileByNotionId(childPage.id);
+            if (existingFile) {
+                await this.app.vault.modify(existingFile, fileContent);
+            } else {
+                let filePath = `${basePath}/${safeTitle}.md`;
+                let counter = 1;
+                while (await this.app.vault.adapter.exists(filePath)) {
+                    filePath = `${basePath}/${safeTitle} (${counter}).md`;
+                    counter++;
+                }
+                await this.app.vault.create(filePath, fileContent);
+            }
+        }
+
+        return basePath;
     }
 }
