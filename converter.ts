@@ -35,7 +35,7 @@ export class NotionConverter {
             }
 
             // 2. 处理嵌套子块
-            if (block.has_children) {
+            if (block.has_children && block.type !== 'table') {
                 const children = await this.notionService.getBlockChildren(block.id);
                 let childMd = '';
 
@@ -179,6 +179,26 @@ export class NotionConverter {
                 }
 
                 return `![${imageName}](${imageUrl})`;
+
+            case 'table':
+                const tableChildren = await this.notionService.getBlockChildren(block.id);
+                let tableMd = '';
+
+                for (let i = 0; i < tableChildren.length; i++) {
+                    const row = tableChildren[i];
+                    if (row.type === 'table_row') {
+                        const cells = row.table_row?.cells || [];
+                        const rowText = cells.map((cell: any[]) => this.richTextToMarkdown(cell).replace(/\|/g, '\\|')).join(' | ');
+                        tableMd += `| ${rowText} |\n`;
+
+                        if (i === 0) {
+                            // Markdown requires a separator after the first row
+                            const separator = Array(Math.max(cells.length, 1)).fill('---').join(' | ');
+                            tableMd += `| ${separator} |\n`;
+                        }
+                    }
+                }
+                return tableMd.trim();
 
             case 'bookmark':
                 const bookmarkUrl = content?.url || '';
