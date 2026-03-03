@@ -61,10 +61,6 @@ export class NotionService {
     async search(query: string): Promise<NotionPage[]> {
         const body = JSON.stringify({
             query: query,
-            filter: {
-                value: 'page',
-                property: 'object'
-            },
             sort: {
                 direction: 'descending',
                 timestamp: 'last_edited_time'
@@ -103,5 +99,29 @@ export class NotionService {
 
     async getBlockChildren(blockId: string): Promise<NotionBlock[]> {
         return await this.getBlocks(blockId);
+    }
+
+    async getDatabasePages(databaseId: string): Promise<NotionPage[]> {
+        const pages: NotionPage[] = [];
+        let cursor: string | undefined = undefined;
+
+        do {
+            const body: any = {
+                page_size: 100, // Max allowed
+            };
+            if (cursor) {
+                body.start_cursor = cursor;
+            }
+
+            const response = await this.request(`/databases/${databaseId}/query`, {
+                method: 'POST',
+                body: JSON.stringify(body)
+            });
+
+            pages.push(...response.results);
+            cursor = response.has_more ? response.next_cursor : undefined;
+        } while (cursor);
+
+        return pages;
     }
 }

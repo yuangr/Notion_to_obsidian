@@ -4,6 +4,7 @@ import { NotionConverter } from './converter';
 
 interface NotionPage {
     id: string;
+    object: string; // 'page' or 'database'
     properties: Record<string, any>;
     url: string;
     icon: any;
@@ -32,31 +33,31 @@ export class NotionSearchModal extends SuggestModal<NotionPage> {
         try {
             const results = await this.notionService.search(query);
 
-            // Filter only pages and map to a simpler structure if needed
+            // Filter only pages and database and map to a simpler structure
             return results
-                .filter((item: any) => item.object === 'page')
+                .filter((item: any) => item.object === 'page' || item.object === 'database')
                 .map((page: any) => {
                     // Extract title safely
                     let title = "Untitled";
-                    // Notion properties structure varies, simple check for common title-like properties
-                    // This is a simplification. Real implementation needs robust property parsing.
-                    // For now, let's assume standard 'title' or 'Name' property exists for database pages,
-                    // or look at the title property in general.
-                    // Using a helper would be better, but keeping it simple for now.
-
                     const props = page.properties;
-                    for (const key in props) {
-                        if (props[key].type === 'title') {
-                            const titleItems = props[key].title;
-                            if (titleItems && titleItems.length > 0) {
-                                title = titleItems.map((t: any) => t.plain_text).join("");
+
+                    if (page.object === 'database' && page.title && page.title.length > 0) {
+                        title = page.title.map((t: any) => t.plain_text).join("");
+                    } else {
+                        for (const key in props) {
+                            if (props[key].type === 'title') {
+                                const titleItems = props[key].title;
+                                if (titleItems && titleItems.length > 0) {
+                                    title = titleItems.map((t: any) => t.plain_text).join("");
+                                }
+                                break;
                             }
-                            break;
                         }
                     }
 
                     return {
                         id: page.id,
+                        object: page.object,
                         properties: page.properties,
                         url: page.url,
                         icon: page.icon,
@@ -76,10 +77,10 @@ export class NotionSearchModal extends SuggestModal<NotionPage> {
     renderSuggestion(page: NotionPage, el: HTMLElement) {
         const container = el.createEl("div", { cls: "notion-search-item" });
 
-        // 显示图标和标题
-        const icon = page.icon?.emoji || '📄';
+        // 显示图标和标题, distinguish databases
+        const icon = page.icon?.emoji || (page.object === 'database' ? '🗃️' : '📄');
         container.createEl("div", {
-            text: `${icon} ${page.title}`,
+            text: `${icon} ${page.title} ${page.object === 'database' ? '(Database)' : ''}`,
             cls: "notion-search-title"
         });
 
@@ -106,6 +107,90 @@ export class NotionSearchModal extends SuggestModal<NotionPage> {
 
     // Perform action on the selected suggestion.
     async onChooseSuggestion(page: NotionPage, evt: MouseEvent | KeyboardEvent) {
+        if (page.object === 'database') {
+            await this.importDatabase(page);
+        } else {
+            await this.importPage(page);
+        }
+    }
+
+    async importDatabase(database: NotionPage) {
+        new Notice(`Fetching pages for database ${database.title}...`);
+        try {
+            const pages = await this.notionService.getDatabasePages(database.id);
+            new Notice(`Found ${pages.length} pages in ${database.title}. Importing...`);
+
+            // 确保数据库主文件夹存在
+            let dbFolderName = database.title.replace(/[\\/:*?"<>|]/g, "-") || "Untitled Database";
+            const basePath = `Notion_Search/${dbFolderName}`;
+
+            // Create root Notion_Search if not exists
+            if (!await this.app.vault.adapter.exists('Notion_Search')) {
+                await this.app.vault.createFolder('Notion_Search');
+            }
+            // Create DB folder if not exists
+            if (!await this.app.vault.adapter.exists(basePath)) {
+                await this.app.vault.createFolder(basePath);
+            }
+
+            let importedCount = 0;
+            for (const childPage of pages) {
+                // Extract title for the child page
+                let childTitle = "Untitled";
+                for (const key in childPage.properties) {
+                    if (childPage.properties[key].type === 'title') {
+                        const titleItems = childPage.properties[key].title;
+                        if (titleItems && titleItems.length > 0) {
+                            childTitle = titleItems.map((t: any) => t.plain_text).join("");
+                        }
+                        break;
+                    }
+                }
+
+                let safeTitle = childTitle.replace(/[\\/:*?"<>|]/g, "-") || "Untitled";
+                const yamlProperties = this.notionConverter.propertiesToYAML(childPage.properties);
+                const markdown = await this.notionConverter.pageToMarkdown(childPage.id);
+
+                const now = new Date().toISOString();
+                const frontmatterBase = `---
+notion_url: ${childPage.url}
+notion_id: ${childPage.id}
+updated: ${now}
+`;
+                // Merge YAML
+                let finalYaml = frontmatterBase;
+                if (yamlProperties.startsWith('---\n')) {
+                    finalYaml += yamlProperties.slice(4); // append without the starting ---
+                } else {
+                    finalYaml += '---\n';
+                }
+
+                const fileContent = finalYaml + '\n' + markdown;
+
+                const existingFile = this.findFileByNotionId(childPage.id);
+                if (existingFile) {
+                    await this.app.vault.modify(existingFile, fileContent);
+                } else {
+                    let filePath = `${basePath}/${safeTitle}.md`;
+                    let counter = 1;
+                    while (await this.app.vault.adapter.exists(filePath)) {
+                        filePath = `${basePath}/${safeTitle} (${counter}).md`;
+                        counter++;
+                    }
+                    await this.app.vault.create(filePath, fileContent);
+                }
+                importedCount++;
+            }
+
+            new Notice(`Successfully imported ${importedCount} pages into /${basePath}`);
+
+        } catch (error) {
+            console.error("Error importing database:", error);
+            new Notice("Failed to import database. Check console.");
+        }
+    }
+
+    async importPage(page: NotionPage) {
         new Notice(`Importing ${page.title}...`);
 
         try {
@@ -115,10 +200,8 @@ export class NotionSearchModal extends SuggestModal<NotionPage> {
             const folderPath = 'Notion_Search';
             try {
                 const folderExists = await this.app.vault.adapter.exists(folderPath);
-                console.log(`Folder ${folderPath} exists: ${folderExists}`);
                 if (!folderExists) {
                     await this.app.vault.createFolder(folderPath);
-                    console.log(`Created folder: ${folderPath}`);
                 }
             } catch (e) {
                 console.log(`Folder may already exist or error: ${e}`);

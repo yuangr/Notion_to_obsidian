@@ -244,6 +244,70 @@ export class NotionConverter {
         }
     }
 
+    public propertiesToYAML(properties: Record<string, any>): string {
+        if (!properties) return '';
+
+        let yaml = '---\n';
+        for (const [key, prop] of Object.entries(properties)) {
+            let value = '';
+
+            switch (prop.type) {
+                case 'title':
+                    value = prop.title.map((t: any) => t.plain_text).join('');
+                    break;
+                case 'rich_text':
+                    value = prop.rich_text.map((t: any) => t.plain_text).join('');
+                    break;
+                case 'number':
+                    value = prop.number !== null ? prop.number.toString() : '';
+                    break;
+                case 'select':
+                    value = prop.select ? prop.select.name : '';
+                    break;
+                case 'multi_select':
+                    value = prop.multi_select ? `[${prop.multi_select.map((s: any) => `"${s.name}"`).join(', ')}]` : '[]';
+                    break;
+                case 'date':
+                    if (prop.date) {
+                        value = prop.date.start;
+                        if (prop.date.end) {
+                            value += ` to ${prop.date.end}`;
+                        }
+                    }
+                    break;
+                case 'checkbox':
+                    value = prop.checkbox ? 'true' : 'false';
+                    break;
+                case 'url':
+                    value = prop.url || '';
+                    break;
+                case 'email':
+                    value = prop.email || '';
+                    break;
+                case 'phone_number':
+                    value = prop.phone_number || '';
+                    break;
+                case 'status':
+                    value = prop.status ? prop.status.name : '';
+                    break;
+                // Add more property types as needed (people, files, relation, formula, rollup, etc. are complex)
+            }
+
+            if (value !== '') {
+                // To avoid breaking yaml with special characters, simple wrapping might be needed depending on value type
+                if (prop.type === 'multi_select' || prop.type === 'checkbox' || prop.type === 'number') {
+                    yaml += `${key}: ${value}\n`;
+                } else {
+                    // Escape quotes for string values
+                    const safeValue = value.replace(/"/g, '\\"');
+                    yaml += `${key}: "${safeValue}"\n`;
+                }
+            }
+        }
+        yaml += '---';
+        return yaml;
+    }
+
     private richTextToMarkdown(richText: any[]): string {
         if (!richText || richText.length === 0) {
             return '';
