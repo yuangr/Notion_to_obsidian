@@ -34,7 +34,7 @@ export class NotionService {
     }
 
     // 使用 Obsidian 的 requestUrl 避免 CORS 问题
-    private async request(endpoint: string, options: Partial<RequestUrlParam> = {}): Promise<any> {
+    private async request(endpoint: string, options: Partial<RequestUrlParam> = {}, versionOverride?: string): Promise<any> {
         const url = `${NOTION_API_BASE}${endpoint}`;
 
         const requestOptions: RequestUrlParam = {
@@ -42,7 +42,7 @@ export class NotionService {
             method: options.method || 'GET',
             headers: {
                 'Authorization': `Bearer ${this.token}`,
-                'Notion-Version': NOTION_VERSION,
+                'Notion-Version': versionOverride || NOTION_VERSION,
                 'Content-Type': 'application/json',
                 ...options.headers,
             },
@@ -116,14 +116,23 @@ export class NotionService {
             dataSourceId = database.data_sources[0].id;
         }
 
-        if (!dataSourceId) {
-            console.error('No data_source_id found for database:', databaseId, 'Full response:', JSON.stringify(database));
-            throw new Error(`No data_source_id found for database ${databaseId}. Make sure the database is shared with your Notion integration.`);
+        // Determine endpoint and API version
+        let queryEndpoint: string;
+        let apiVersion: string | undefined;
+
+        if (dataSourceId) {
+            // New API: use data_sources endpoint
+            queryEndpoint = `/data_sources/${dataSourceId}/query`;
+            console.log(`Database ${databaseId} -> data_source_id: ${dataSourceId}`);
+        } else {
+            // Fallback for inline databases with empty data_sources:
+            // Use old endpoint with old API version
+            queryEndpoint = `/databases/${databaseId}/query`;
+            apiVersion = '2022-06-28';
+            console.log(`Database ${databaseId} has no data_sources, falling back to legacy API v2022-06-28`);
         }
 
-        console.log(`Database ${databaseId} -> data_source_id: ${dataSourceId}`);
-
-        // Step 2: Query the data source
+        // Step 2: Query
         const pages: NotionPage[] = [];
         let cursor: string | undefined = undefined;
 
@@ -135,10 +144,10 @@ export class NotionService {
                 body.start_cursor = cursor;
             }
 
-            const response = await this.request(`/data_sources/${dataSourceId}/query`, {
+            const response = await this.request(queryEndpoint, {
                 method: 'POST',
                 body: JSON.stringify(body)
-            });
+            }, apiVersion);
 
             pages.push(...response.results);
             cursor = response.has_more ? response.next_cursor : undefined;
