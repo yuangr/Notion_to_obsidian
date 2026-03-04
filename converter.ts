@@ -229,9 +229,12 @@ export class NotionConverter {
                 try {
                     const folderPath = await this.importDatabaseToFolder(block.id, dbTitle);
                     return `📊 [[${folderPath}/|${dbTitle}]]`;
-                } catch (e) {
-                    console.error("Failed to import inline database", e);
-                    return `📊 [[${dbTitle}]]`;
+                } catch (e: any) {
+                    console.error("Failed to import inline database:", e);
+                    // Show error to user via Obsidian Notice
+                    const { Notice } = require('obsidian');
+                    new Notice(`Failed to import database "${dbTitle}": ${e?.message || 'Unknown error'}. Make sure the database is shared with your Notion integration.`);
+                    return `📊 [[${dbTitle}]] *(import failed)*`;
                 }
 
             case 'embed':

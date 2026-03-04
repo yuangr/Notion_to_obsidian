@@ -101,19 +101,41 @@ export class NotionService {
         return await this.getBlocks(blockId);
     }
 
+    async getDatabase(databaseId: string): Promise<any> {
+        return await this.request(`/databases/${databaseId}`);
+    }
+
     async getDatabasePages(databaseId: string): Promise<NotionPage[]> {
+        // Step 1: Retrieve the database to get data_source_id
+        // Notion API v2025-09-03 deprecated /databases/{id}/query
+        // and requires /data_sources/{data_source_id}/query instead
+        const database = await this.getDatabase(databaseId);
+
+        let dataSourceId: string | undefined;
+        if (database.data_sources && database.data_sources.length > 0) {
+            dataSourceId = database.data_sources[0].id;
+        }
+
+        if (!dataSourceId) {
+            console.error('No data_source_id found for database:', databaseId, 'Full response:', JSON.stringify(database));
+            throw new Error(`No data_source_id found for database ${databaseId}. Make sure the database is shared with your Notion integration.`);
+        }
+
+        console.log(`Database ${databaseId} -> data_source_id: ${dataSourceId}`);
+
+        // Step 2: Query the data source
         const pages: NotionPage[] = [];
         let cursor: string | undefined = undefined;
 
         do {
             const body: any = {
-                page_size: 100, // Max allowed
+                page_size: 100,
             };
             if (cursor) {
                 body.start_cursor = cursor;
             }
 
-            const response = await this.request(`/databases/${databaseId}/query`, {
+            const response = await this.request(`/data_sources/${dataSourceId}/query`, {
                 method: 'POST',
                 body: JSON.stringify(body)
             });
